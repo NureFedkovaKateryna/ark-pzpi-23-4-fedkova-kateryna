@@ -6,6 +6,6 @@
 
 Правила оформлення програмного коду: Python PEP8 за Python Software Foundation
 
-Методи рефакторингу коду програмного забезпечення
+Використання Extract Method, Replace Conditional with Polymorphism, Consolidate Conditional Expression у Python
 
-Програмна система Автоматизація кофейного бізнесу
+Програмна система для автоматизації роботи кав'ярень
