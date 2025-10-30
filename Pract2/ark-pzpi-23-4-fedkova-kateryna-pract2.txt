@@ -1,0 +1,344 @@
+Харківський національний університет радіоелектроніки
+Факультет комп’ютерних наук
+Катедра програмної інженерії
+
+
+
+
+
+
+
+
+
+
+
+
+ЗВІТ
+з практичної роботи № 2
+з дисципліни «Аналіз та рефакторинг коду»
+на тему: «Використання Extract Method, Replace Conditional with Polymorphism, Consolidate Conditional Expression у Django, Python»
+
+
+
+
+
+
+
+
+Виконала
+ст. гр. ПЗПІ-23-4
+Федькова Катерина
+Перевірив
+ст. викладач катедри ПІ
+Сокорчук Ігор Петрович
+
+
+
+
+Харків 2025
+1 ІСТОРІЯ ЗМІН
+
+
+№
+	Дата
+	Версія звіту
+	Опис змін та виправлень
+	1
+	30.10.2025
+	0.1
+	Зроблено звіт
+	________________
+
+
+1 ЗАВДАННЯ
+Метою даної роботи є навчитися основним методам рефакторингу коду на основі реальних прикладів. Потрібно навчитися ідентифікувати проблеми в коді та використовувати відповідні методи рефакторингу для покращення його якості.
+2 ОПИС ВИКОНАНОЇ РОБОТИ
+Рефакторинг - це процес структурної перебудови існуючого коду без зміни його зовнішньої поведінки. Мета рефакторингу - покращення якості коду та зменшення складності системи без зміни її функціональності. Основні цілі:
+* підвищення читабельності коду (код стає простішим для розуміння іншими розробниками);
+* покращення підтримуваності (легше виправляти помилки та вносити зміни без ризику зламати інший функціонал);
+* зменшення дублювання та складності (повторювані або громіздкі блоки коду перетворюються на чисті та повторно використовувані методи);
+* збільшення тестованості коду (логічні блоки виділяються у методи або класи, що спрощує юніт-тестування);
+* підвищення гнучкості та розширюваності (код легше адаптувати до нових вимог і додавати новий функціонал без ризику зламати існуючий).
+Extract Method (виділення методу) - перенесення фрагменту коду у новий окремий метод з осмисленою назвою. Призначення:
+* підвищити читабельність і зрозумілість коду;
+* зменшити дублювання - виділений код можна викликати повторно;
+* сприяє повторному використанню логіки;
+* полегшує тестування - невеликі методи простіше перевіряти.
+Replace Conditional with Polymorphism (заміна умовного оператора поліморфізмом) - замість великого if-elif-else чи switch для вибору поведінки створюються класи-нащадки, кожен із яких реалізує свою версію методу. Призначення:
+* позбавляє складних і громіздких умов;
+* полегшує розширення функціоналу - додається новий клас, а не змінюється існуючий код;
+* використовує принцип відкритості/закритості (Open/Closed Principle).
+Consolidate Conditional Expression (об’єднання умовних виразів) - кілька окремих умов, що ведуть до однакових дій, об’єднуються в одну спільну логічну умову. Призначення:
+* робить код компактнішим і зрозумілішим;
+* зменшує кількість повторів однакових блоків коду.
+У даному прикладі з API для статистики замовлень метод get робить занадто багато речей одночасно. Такий метод складно читати, тестувати та підтримувати. Логіка підрахунку переплетена з логікою формування відповіді, що порушує принцип єдиної відповідальності (Single Responsibility Principle).
+
+
+  1 # Поганий приклад
+  2
+  3 from rest_framework.views import APIView
+  4 from rest_framework.response import Response
+  5 from myapp.models import Order
+  6
+  7
+  8 class OrderStatsAPIView(APIView):
+  9     def get(self, request, *args, **kwargs):
+ 10         user = request.user
+ 11         orders = Order.objects.filter(user=user)
+ 12         total_price = 0
+ 13         total_items = 0
+ 14         for order in orders:
+ 15             for item in order.items.all():
+ 16                 total_price += item.price * item.quantity
+ 17                 total_items += item.quantity
+ 18
+ 19         return Response({
+ 20             "username": user.username,
+ 21             "total_orders": orders.count(),
+ 22             "total_items": total_items,
+ 23             "total_price": total_price,
+ 24         })
+
+
+Для рефакторингу будемо використовувати Extract Method. У цьому випадку ми виділяємо логіку підрахунку загальної кількості товарів та суми замовлень у приватний метод _calculate_order_stats. Код після рефакторингу:
+  1 # Гарний приклад
+  2
+  3 class OrderStatsAPIView(APIView):
+  4     def get(self, request, *args, **kwargs):
+  5         user = request.user
+  6         orders = Order.objects.filter(user=user)
+  7         stats = self._calculate_order_stats(orders)
+  8
+  9         return Response({
+ 10             "username": user.username,
+ 11             "total_orders": orders.count(),
+ 12             **stats,
+ 13         })
+ 14
+ 15     def _calculate_order_stats(self, orders):
+ 16         total_price = 0
+ 17         total_items = 0
+ 18         for order in orders:
+ 19             for item in order.items.all():
+ 20                 total_price += item.price * item.quantity
+ 21                 total_items += item.quantity
+ 22
+ 23         return {
+ 24             "total_items": total_items,
+ 25             "total_price": total_price,
+ 26         }
+
+
+Переваги отриманого коду після застосування методу:        
+* читабельність (метод get став зрозумілим - він описує логіку на високому рівні, без зайвих деталей обчислень);
+* перевикористання коду (метод _calculate_order_stats можна викликати з інших API, скриптів або адміністративних частин програми);
+* тестованість (логіку підрахунку можна тестувати окремо, не роблячи HTTP-запитів, що спрощує юніт-тести);
+* підтримуваність (будь-які зміни в логіці підрахунку торкаються лише _calculate_order_stats, не впливаючи на інший код);
+* відповідність принципам SOLID (виділення допоміжного методу забезпечує дотримання Single Responsibility Principle та зменшує складність коду).
+У даному прикладі підрахунок вартості замовлення залежить від типу замовлення: звичайне, експрес, оптове. Проблеми такого підходу:
+* метод містить багато умовних конструкцій, що збільшує складність коду;
+* додавання нового типу замовлення вимагає змінювати існуючий код, що порушує Open/Closed Principle;
+* код важко тестувати і підтримувати.
+
+
+  1 # Поганий приклад
+  2
+  3 class OrderStatsAPIView(APIView):
+  4     def get(self, request, *args, **kwargs):
+  5         orders = Order.objects.filter(user=request.user)
+  6         total_price = 0
+  7         for order in orders:
+  8             if order.type == "standard":
+  9                 total_price += order.price
+ 10             elif order.type == "express":
+ 11                 total_price += order.price + 50
+ 12             elif order.type == "bulk":
+ 13                 total_price += order.price * 0.9
+ 14
+ 15         return Response({
+ 16             "total_orders": orders.count(),
+ 17             "total_price": total_price,
+ 18         })
+
+
+Для рефакторингу будемо використовувати Replace Conditional with Polymorphism. Суть методу: замість перевірки типу об’єкта через умовні оператори, створюємо ієрархію класів для різних типів і реалізуємо поведінку в кожному класі.
+
+
+  1 # Гарний приклад
+  2
+  3 from abc import ABC, abstractmethod
+  4
+  5 class OrderBase(ABC):
+  6     def __init__(self, price):
+  7         self.price = price
+  8
+  9     @abstractmethod
+ 10     def calculate_price(self):
+ 11         pass
+ 12
+ 13
+ 14 class StandardOrder(OrderBase):
+ 15     def calculate_price(self):
+ 16         return self.price
+ 17
+ 18
+ 19 class ExpressOrder(OrderBase):
+ 20     def calculate_price(self):
+ 21         return self.price + 50
+ 22
+ 23
+ 24 class BulkOrder(OrderBase):
+ 25     def calculate_price(self):
+ 26         return self.price * 0.9
+ 27
+ 28
+ 29 ORDER_TYPE_MAPPING = {
+ 30     "standard": StandardOrder,
+ 31     "express": ExpressOrder,
+ 32     "bulk": BulkOrder,
+ 33 }
+ 34
+ 35
+ 36 class OrderStatsAPIView(APIView):
+ 37     def get(self, request, *args, **kwargs):
+ 38         orders = Order.objects.filter(user=request.user)
+ 39         total_price = 0
+ 40         for order in orders:
+ 41             order_class = ORDER_TYPE_MAPPING.get(order.type, StandardOrder)
+ 42             order_obj = order_class(order.price)
+ 43             total_price += order_obj.calculate_price()
+ 44
+ 45         return Response({
+ 46             "total_orders": orders.count(),
+ 47             "total_price": total_price,
+ 48         })
+
+
+Переваги отриманого коду після застосування методу:
+* відповідність принципу Open/Closed (щоб додати новий тип замовлення, достатньо створити новий клас і додати його в ORDER_TYPE_MAPPING);
+* чітка організація (кожен тип замовлення відповідає за свою логіку підрахунку ціни);
+* легкість тестування (можна тестувати окремо кожен клас без API-запитів);
+* мінімізація умовних операторів (код не розростається при додаванні нових типів замовлень);
+* підтримуваність (всі зміни локалізовані в класах замовлень).
+У даному прикладі API для замовлень повертає, чи можна користувачу скасувати замовлення. Умови такі: замовлення ще не доставлено, замовлення не було скасовано раніше, замовлення було зроблено менше доби тому. У коді це виглядає як довгі вкладені if, що важко читати і підтримувати.
+
+
+  1 # Поганий приклад
+  2
+  3 from datetime import timedelta
+  4 from django.utils import timezone
+  5
+  6
+  7 class OrderCancelAPIView(APIView):
+  8     def get(self, request, *args, **kwargs):
+  9         order = Order.objects.get(id=kwargs['order_id'])
+ 10         now = timezone.now()
+ 11         can_cancel = False
+ 12         if order.status != 'delivered':
+ 13             if not order.cancelled:
+ 14                 if order.created_at > now - timedelta(days=1):
+ 15                     can_cancel = True
+ 16
+ 17         return Response({
+ 18             "order_id": order.id,
+ 19             "can_cancel": can_cancel,
+ 20         })
+
+
+Для рефакторингу будемо застосовувати Consolidate Conditional Expression. Суть методу: об’єднати складні або вкладені умовні вирази в один чіткий логічний вираз або допоміжну змінну.
+  1 # Гарний приклад
+  2
+  3
+  4 class OrderCancelAPIView(APIView):
+  5     def get(self, request, *args, **kwargs):
+  6         order = Order.objects.get(id=kwargs['order_id'])
+  7         now = timezone.now()
+  8         can_cancel = (
+  9             order.status != 'delivered' and
+ 10             not order.cancelled and
+ 11             order.created_at > now - timedelta(days=1)
+ 12         )
+ 13
+ 14         return Response({
+ 15             "order_id": order.id,
+ 16             "can_cancel": can_cancel,
+ 17         })
+ 18
+
+
+Переваги отриманого коду після застосування методу:
+* читабельність (всі умови скасування видно відразу, без вкладених блоків if).
+* чистота (короткий вираз логічно описує правила, без зайвого коду).
+* легкість тестування (тепер можна протестувати змінну can_cancel як чисту логіку, незалежно від API).
+* підтримуваність (додавання нових умов або зміна правил легко робиться всередині одного виразу).
+* Відповідність принципам SOLID (високий рівень абстракції і чистота коду роблять метод get більш зрозумілим та зменшують когнітивну складність).
+3 ВИСНОВКИ
+Після застосування рефакторингу код став більш читабельним та зрозумілим, оскільки основні дії в методах представлені на високому рівні абстракції без зайвих деталей, що дозволяє швидко орієнтуватися в логіці. 
+Зменшилася складність основних методів завдяки виділенню допоміжних методів та використанню поліморфізму.
+Крім того, виділені методи та класи можна тестувати окремо, без необхідності викликати весь API, що робить юніт-тести більш надійними та швидкими.
+Завдяки рефакторингу код став більш структурованим і зрозумілим, що спрощує внесення змін у майбутньому та дозволяє додавати нові функціональні можливості без ризику зламати існуючу логіку.
+Також рефакторинг допоміг дотримуватися принципів SOLID, зокрема Single Responsibility Principle та Open/Closed Principle, що робить код гнучким для розширень і безпечним для модифікацій.
+Загалом, рефакторинг підвищив підтримуваність, тестованість, повторне використання та гнучкість коду, при цьому зовнішня поведінка програми залишилася незмінною.
+4 ВИКОРИСТАНІ ДЖЕРЕЛА
+1. Refactoring and Design Patterns. Refactoring and Design Patterns. URL: https://refactoring.guru/ (дата звернення: 30.10.2025).
+2.  Refactoring: Improving the Design of Existing Code. Addision-Wesley, 2018. 448 p. (дата звернення: 30.10.2025).
+ДОДАТОК А
+Відеозапис
+Відеозапис презентації результатів лабораторної роботи: https://youtu.be/4LlKTW_J2Ks
+Хронологічний опис відеозапису:
+00:00 – Вступ
+00:09 – Що таке рефакторинг
+01:07 – Методи рефакторингу
+02:34 – Приклад 1: Extract Method
+04:35 – Приклад 2: Replace Conditional with Polymorphism
+06:50 – Приклад 3: Consolidate Conditional Expression
+08:32 – Висновки
+ДОДАТОК Б
+Скріншоти презентації
+
+
+  
+
+Рисунок Б.1 - Титульний лист
+  
+
+Рисунок Б.2 - Поняття рефакторингу
+  
+
+Рисунок Б.3 - Обрані методи рефакторингу та їх призначення
+
+
+  
+
+Рисунок Б.4 - Приклад 1: Extract Method (до рефакторингу)
+
+
+  
+
+Рисунок Б.5 - Приклад 1: Extract Method (після рефакторингу)
+
+
+  
+
+Рисунок Б.6 - Приклад 2: Replace Conditional with Polymorphism (до рефакторингу)
+
+
+  
+
+Рисунок Б.7 -  Приклад 2: Replace Conditional with Polymorphism (після рефакторингу)
+
+
+  
+
+Рисунок Б.8 - Приклад 3: Consolidate Conditional Expression (до рефакторингу)
+  
+
+Рисунок Б.9 - Приклад 3: Consolidate Conditional Expression (після рефакторингу)
+
+
+  
+
+Рисунок Б.10 - Висновки
+  
+
+Рисунок Б.11 - Список використаних джерел
