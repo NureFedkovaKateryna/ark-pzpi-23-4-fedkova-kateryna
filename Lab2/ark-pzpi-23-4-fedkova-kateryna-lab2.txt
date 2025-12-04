@@ -1,0 +1,755 @@
+Харківський національний університет радіоелектроніки
+Факультет комп’ютерних наук
+Катедра програмної інженерії
+
+
+
+
+
+
+
+
+
+
+
+
+ЗВІТ
+з лабораторної роботи №2
+з дисципліни «Аналіз та рефакторинг коду»
+на тему: «Розробка бази даних для серверної частини системи та прикладного програмного інтерфейсу (API)»
+
+
+
+
+
+
+
+
+Виконала
+ст. гр. ПЗПІ-23-4
+Федькова Катерина
+Перевірив
+ст. викладач катедри ПІ
+Сокорчук Ігор Петрович
+
+
+
+
+Харків 2025
+1 ІСТОРІЯ ЗМІН
+
+
+№
+	Дата
+	Версія звіту
+	Опис змін та виправлень
+	1
+	04.12.2025
+	0.1
+	Зроблено звіт
+	________________
+
+
+2 ЗАВДАННЯ
+Метою даної роботи є ознайомлення з процесом розробки серверної частини програмної системи, включаючи проектування бази даних (БД), розробку API для взаємодії з клієнтами, та перевірку (тестування) їхньої взаємодії. Оволодіти методами проектування діаграм UML та ER, розробки БД, програмної реалізації API, а також роботи з репозиторіями Git та створення технічної документації.
+3 ОПИС ВИКОНАНОЇ РОБОТИ
+Темою проєкту для лабораторних робіт є програмна система для автоматизації кавового бізнесу.
+Першим кроком у розробці програмної системи - це розробка її будови (див. рис. 3.1).
+  
+ 
+Рисунок 3.1- Архітектурні рішення для серверної частини системи, клієнтських взаємодій та БД
+
+
+В системі буде використовуватися модель Organization, яка об’єднує користувачів, їхні пристрої, меню, інгредієнти та замовлення. Усі сутності прив’язані до конкретної організації через organization_id. 
+Модель Role буде визначати права доступу користувачів у системі (admin, barista). Різні користувачі можуть мати одну роль.
+Модель User є зареєстрованою особою, яка працює в межах однієї організації. User  може мати одну роль та належати до однієї організації. 
+Модель Product описує напій, який можна замовити. Модель Ingredient - це одиниця запасу, яка використовується у напоях. Модель ProductsIngredients зв’язує продукти з інгредієнтами (many-to-many). Модель ProductsHints описує послідовність кроків для створення продукту. Пов'язана з моделлю Product.
+Модель Order відображає створене замовлення користувачем. У користувача може бути багато замовлень, але у замовлення тільки один користувач. Модель OrdersProducts реалізує зв’язок many-to-many між замовленнями та продуктами.
+Модель DeviceType призначений для класифікації пристроїв. Модель Device - це фізичний пристрій у системі, який виконує команди або передає дані. DeviceType може мати багато пристроїв, але пристій має тільки один тип. 
+Модель SensorType призначена для класифікація сенсорів (наприклад, “температура”, “вологість”). Модель Sensor (Сенсор) - це конкретний сенсор, підключений до пристрою. У SensorType може бути багато сенсорів, але у сенсора тільки один тип. 
+Модель CommandType класифікує команди, які можуть бути надіслані пристрою. Модель Command призначена для зберігання команди, яка була надіслана на пристрій. Модель Event - це повідомлення або лог подій пристрою. Модель DeviceLog фіксує значення, отримані від сенсорів.
+
+Створимо UML діаграму прецедентів для серверної частини системи. Використаємо її для опису основних прецедентів використання серверної частини. Діаграма включає дії користувачів та взаємодії між ними та системою (див. рис. 3.2).
+
+
+  
+
+Рисунок 3.2- UML діаграма прецедентів для серверної частини системи
+
+
+Створимо ER діаграму даних. Визначимо сутності, атрибути та зв’язки між ними у БД. Використаємо ER діаграму для наочного відображення структури даних (див. рис. 3.3).
+  
+
+Рисунок 3.3- ER діаграма для відображення структури даних
+
+
+На основі ER діаграми спроєктуємо таблиці БД (див. додаток Б).
+У 1NF кожне поле повинно містити атомарне значення, таблиця не має повторюваних груп даних, а всі рядки унікальні. У початковій моделі сутності були розділені на незалежні таблиці. Кожен атрибут в цих таблицях уже є атомарним: немає об’єднаних значень, масивів чи повторюваних колонок. Схема повністю відповідає 1NF.
+2NF вимагає виконання 1NF та відсутності часткових залежностей від складеного первинного ключа. У схемі всі таблиці мають штучні первинні ключі, складені ключі відсутні, тобто залежності від частини ключа неможливі. Жоден неключовий атрибут не залежить від частини ключа — усі залежать від одного PK. Схема повністю відповідає 2NF.
+3NF вимагає виконання 2NF та відсутності транзитивних залежностей (коли поле залежить не від ключа, а від іншого неключового поля). Жодних атрибутів, що описують інші неключові атрибути, немає. Усі зв’язки реалізовані через зовнішні ключі. Схема відповідає 3NF, оскільки транзитивні залежності відсутні.
+Створимо діаграму структури БД. Діаграма показує всі таблиці, зв’язки між ними, ключові поля та обмеження (див. рис. 3.4).
+  
+
+Рисунок 3.4- Діаграма структури БД
+
+
+Для API буде використовуватися RESTful API. Опишемо ендпоінти, які будуть реалізовані в API, їхні методи та параметри (див. табл. 3.1).
+Таблиця 3.1 - Опис ендпоінтів
+Ендпоінт
+	Метод
+	Опис
+	Параметри
+	/auth/register
+	POST
+	Зареєструватися як власник кав’ярні
+	username, password,
+organisation_title
+	/auth/login
+	POST
+	Увійти в систему
+	username, password
+	/organisations
+	GET 
+	Отримати список усіх організацій
+	
+
+	/organisations/{id}
+	GET 
+	Отримати організацію за ID
+	id
+	/organisations
+	POST 
+	Створити організацію
+	title
+	/organisations/{id}
+	PATCH
+	Оновити організацію
+	id, title 
+	/organisations/{id}
+	DELETE
+	 Видалити організацію
+	id
+	/roles
+	GET
+	Отримати всі ролі
+		/roles/{id}
+	GET
+	Отримати роль за ID
+	id
+	/roles
+	POST
+	Створити роль
+	title
+	/roles/{id}
+	PATCH
+	Оновити роль
+	id, title
+	/roles/{id}
+	DELETE
+	Видалити роль
+	id
+	/users
+	GET
+	Отримати список усіх користувачів
+	organisation_id
+	/users/{id}
+	GET
+	Отримати користувача за ID
+	id
+	/users
+	POST
+	Створити користувача
+	username, password, role_id, organisation_id
+	/users/{id}
+	PATCH
+	Оновити користувача
+	username, password, role_id
+	/users/{id}
+	DELETE
+	Видалити користувача
+	id
+	/products
+	GET
+	Отримати всі позиції меню
+	organisation_id
+	/products/{id}
+	GET
+	Отримати позицію меню за ID
+	id
+	/products
+	POST
+	Створити позицію меню за ID
+	title, price, is_active, organisation_id
+	/products/{id}
+	PATCH
+	Оновити позицію меню за ID
+	id, title, price, is_active
+	/products/{id}
+	DELETE
+	Видалити позицію меню за ID
+	id
+	/ingredients
+	GET
+	Отримати всі запаси зі складу
+	organisation_id
+	/ingredients/{id}
+	GET
+	Отримати запаси зі складу за ID
+	id
+	/ingredients
+	POST
+	Створити запас на складі
+	title, quantity, unit, min_amount, organisation_id
+	/ingredients/{id}
+	PATCH
+	Оновити товар на складі
+	id, title, quantity, unit, min_amount
+	/ingredients/{id}
+	DELETE
+	Видалити товар на складі
+	id
+	/product-ingredients
+	GET
+	Отримати всі інгредієнти для позицій меню
+	organisation_id
+	/product-ingredients/{productId}
+	GET
+	Отримати інгредієнти для позиції меню за ID
+	productId
+	/product-ingredients
+	POST
+	Додати інгредієнт для позиції меню
+	product_id, ingredient_id
+	/product-ingredients/{id}
+	DELETE
+	Видалити інгредієнт для позиції меню 
+	id
+	/product-hint
+	GET
+	Отримати підказки для всіх позицій меню
+	organisation_id
+	/product-hint/{productId}
+	GET
+	Отримати підказки для конкретної позиції меню
+	productId
+	/product-hint
+	POST
+	Створити підказку для позиції меню
+	product_id, step_number, description
+	/product-hint/{іd}
+	PATCH
+	Оновити підказку
+	id, step_number, description
+	/product-hint/{іd}
+	DELETE
+	Видалити підказку для позиції меню
+	id
+	/orders
+	GET
+	Отримати всі замовлення в організації
+	organisation_id
+	/orders/{id}
+	GET
+	Отримати конкретне   замовлення
+		/orders
+	POST
+	Створити замовлення
+	user_id, organisation_id
+	/orders/{id}
+	PATCH
+	Оновити замовлення
+	id, status
+	/orders/{id}
+	DELETE
+	Видалити замовлення
+	id
+	/order-products
+	GET
+	Отримати товари всіх замовлень
+	organisation_id
+	/order-products/{orderid}
+	GET
+	Отримати товари конкретного замовлення
+	orderId
+	/order-products
+	POST
+	Додати товар до замовлення
+	order_id, product_id, quantity
+	/order-products/{id}
+	PATCH
+	Оновити кількість продукту
+	id, quantity
+	/order-products/{id}
+	DELETE
+	Видалити товар із замовлення
+	id
+	/device-type
+	GET
+	Отримати всі типи пристроїв
+	organisation_id
+	/device-type/{id}
+	GET
+	Отримати інформацію про конкретний тип пристрою 
+	id
+	/device-type
+	POST
+	Створити тип пристрою
+	title, organisation_id
+	/device-type/{id}
+	PATCH
+	Оновити тип пристрою
+	id, title
+	/device-type/{id}
+	DELETE
+	Видалити тип пристрою
+	id
+	/devices
+	GET
+	Отримати всі пристрої
+		/devices/{id}
+	GET
+	Отримати пристрій за ID
+	id
+	/devices
+	POST
+	Додати пристрій
+	title, device_type_id, status, last_connection, organisation_id
+	/devices/{id}
+	PATCH
+	Оновити пристрій
+	id, title, device_type_id, status, last_connection, organisation_id
+	/devices/{id}
+	DELETE
+	Видалити пристрій
+	id
+	/sensor-types
+	GET
+	Отримати всі типи сенсорів
+		/sensor-types/{id}
+	GET
+	Отримати конкретний  тип сенсора
+	id
+	/sensor-types
+	POST
+	Створити тип сенсора
+	title
+	/sensor-types/{id}
+	PATCH
+	Оновити тип сенсора
+	id, title
+	/sensor-types/{id}
+	DELETE
+	Видалити тип сенсора
+	id
+	/sensors
+	GET
+	Отримати всі сенсори
+		/sensors/{id}
+	GET
+	Отримати конкретний сенсор
+	id
+	/sensors
+	POST
+	Додати сенсор
+	device_id, title, sensor_type_id, unit, min_value, max_value
+	/sensors/{id}
+	PATCH
+	Оновити сенсор
+	device_id, title, sensor_type_id, unit, min_value, max_value
+	/sensors/{id}
+	DELETE
+	Видалити сенсор
+	id
+	/command-types
+	GET
+	Отримати всі типи команд
+		/command-types/{id}
+	GET
+	Отримати конкретний  тип команд
+		/command-types
+	POST
+	Створити тип команди
+	title
+	/command-types/{id}
+	PATCH
+	Оновити тип команди
+	id, title
+	/command-types/{id}
+	DELETE
+	Видалити тип команди
+	id
+	/commands
+	GET
+	Отримати команди
+		/commands/{id}
+	GET
+	Отримати конкретну команду
+	id
+	/commands
+	POST
+	Створити команду
+	device_id, command_type_id, status, executed_at, product_id
+	/commands/{id}
+	PATCH
+	Оновити команду (наприклад status, executed_at)
+	id, status, executed_at
+	/commands/{id}
+	DELETE
+	Видалити команду
+	id
+	/events
+	GET
+	Отримати всі події
+	 
+	/events/{id}
+	GET
+	Отримати конкретну подію
+	id
+	/events
+	POST
+	Створити подію
+	device_id, message
+	/events/{id}
+	PATCH
+	Оновити подію
+	id, device_id, message
+	/events/{id}
+	DELETE
+	Видалити подію
+	id
+	/device-logs
+	GET
+	Отримати логи сенсорів
+		/device-logs/{id}
+	GET
+	Отримати конкретний лог
+	id
+	/device-logs
+	POST
+	Додати лог сенсора
+	sensor_id, value
+	/device-logs/{id}
+	PATCH
+	Оновити лог
+	id, sensor_id, value
+	/device-logs/{id}
+	DELETE
+	Видалити лог
+	id
+	
+
+Розробимо функції роботи з БД, реалізуємо методи доступу до БД, використовуючи ORM. Функції підтримують CRUD-операції для основних сутностей. Реалізуємо серверну частину системи із доступом до БД та можливістю обробки запитів через API.
+4 ВИСНОВКИ
+У результаті виконання лабораторної роботи ознайомились з процесом, а також розробили серверну частину програмної системи, включаючи проектування бази даних (БД), розробку API для взаємодії з клієнтами, та перевірку (тестування) їхньої взаємодії. Оволоділи методами проектування діаграм UML та ER, розробки БД, програмної реалізації API, а також роботи з репозиторіями Git та створення технічної документації.
+5 ВИКОРИСТАНІ ДЖЕРЕЛА
+1. Home - Django REST framework. Home - Django REST framework. URL: https://www.django-rest-framework.org/ (дата звернення: 04.12.2025).
+ДОДАТОК А
+Відеозапис
+Відеозапис презентації результатів лабораторної роботи: https://www.youtube.com/watch?v=qDqlSSlCDAk
+Хронологічний опис відеозапису:
+00:00 – Вступ
+01:15 – Демонстрація роботи
+ДОДАТОК В
+Програмний код
+В.1 Код для створення бд
+ 1 CREATE TYPE STATUS_ENUM AS ENUM ('in progress', 'done', 'cancelled');
+ 2 CREATE TYPE DEVICE_STATUS_ENUM AS ENUM ('online', 'offline', 'error');
+  3
+  4
+  5 CREATE TABLE organisations (
+  6     organisation_id SERIAL PRIMARY KEY,
+  7     title VARCHAR(100) NOT NULL,
+  8     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  9 );
+ 10
+ 11
+ 12 CREATE TABLE roles (
+ 13     role_id SERIAL PRIMARY KEY,
+ 14     title VARCHAR(100) NOT NULL
+ 15 );
+ 16
+ 17
+ 18 CREATE TABLE users (
+ 19     user_id SERIAL PRIMARY KEY,
+ 20     username VARCHAR(100) NOT NULL,
+ 21     password_hash VARCHAR(255) NOT NULL,
+ 22     role_id INT,
+ 23     organisation_id INT,
+ 24     CONSTRAINT fk_role
+ 25         FOREIGN KEY(role_id)
+ 26         REFERENCES roles(role_id)
+ 27         ON UPDATE CASCADE
+ 28         ON DELETE SET NULL,
+ 29     CONSTRAINT fk_user_org
+ 30         FOREIGN KEY (organisation_id)
+ 31         REFERENCES organisations(organisation_id)
+ 32         ON UPDATE CASCADE
+ 33         ON DELETE CASCADE
+ 34 );
+ 35
+ 36
+ 37 CREATE TABLE products (
+ 38     product_id SERIAL PRIMARY KEY,
+ 39     title VARCHAR(100) NOT NULL,
+ 40     price NUMERIC(10,2) NOT NULL,
+ 41     is_active BOOLEAN DEFAULT true,
+ 42     organisation_id INT,
+ 43     CONSTRAINT fk_product_org
+ 44         FOREIGN KEY (organisation_id)
+ 45         REFERENCES organisations(organisation_id)
+ 46         ON UPDATE CASCADE
+ 47         ON DELETE CASCADE
+ 48 );
+ 49
+ 50
+ 51 CREATE TABLE ingredients (
+ 52     ingredient_id SERIAL PRIMARY KEY,
+ 53     title VARCHAR(100) NOT NULL,
+ 54     quantity NUMERIC(8,3) NOT NULL,
+ 55     unit VARCHAR(50) NOT NULL,
+ 56     min_amount NUMERIC(8,3) DEFAULT 0,
+ 57     organisation_id INT,
+ 58     CONSTRAINT fk_ingredient_org
+ 59         FOREIGN KEY (organisation_id)
+ 60         REFERENCES organisations(organisation_id)
+ 61         ON UPDATE CASCADE
+ 62         ON DELETE CASCADE
+ 63 );
+ 64
+ 65
+ 66 CREATE TABLE products_ingredients (
+ 67     product_ingredient_id SERIAL PRIMARY KEY,
+ 68     product_id INT NOT NULL,
+ 69     ingredient_id INT NOT NULL,
+ 70     organisation_id INT,
+ 71     CONSTRAINT fk_product
+ 72         FOREIGN KEY(product_id)
+ 73         REFERENCES products(product_id)
+ 74         ON UPDATE CASCADE
+ 75         ON DELETE CASCADE,
+ 76     CONSTRAINT fk_ingredient
+ 77         FOREIGN KEY(ingredient_id)
+ 78         REFERENCES ingredients(ingredient_id)
+ 79         ON UPDATE CASCADE
+ 80         ON DELETE RESTRICT,
+ 81     CONSTRAINT fk_org
+ 82         FOREIGN KEY (organisation_id)
+ 83         REFERENCES organisations(organisation_id)
+ 84         ON UPDATE CASCADE
+ 85         ON DELETE CASCADE
+ 86 );
+ 87
+ 88
+ 89 CREATE TABLE products_hints (
+ 90     product_hint_id SERIAL PRIMARY KEY,
+ 91     product_id INT NOT NULL,
+ 92     step_number INT NOT NULL,
+ 93     description TEXT NOT NULL,
+ 94     organisation_id INT,
+ 95     CONSTRAINT fk_hint_product
+ 96         FOREIGN KEY(product_id)
+ 97         REFERENCES products(product_id)
+ 98         ON UPDATE CASCADE
+ 99         ON DELETE CASCADE,
+100     CONSTRAINT fk_hint_org
+101         FOREIGN KEY (organisation_id)
+102         REFERENCES organisations(organisation_id)
+103         ON UPDATE CASCADE
+104         ON DELETE CASCADE
+105 );
+106
+107
+108 CREATE TABLE orders (
+109     order_id SERIAL PRIMARY KEY,
+110     user_id INT,
+111     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+112     status STATUS_ENUM NOT NULL,
+113     organisation_id INT,
+114     CONSTRAINT fk_order_user
+115         FOREIGN KEY(user_id)
+116         REFERENCES users(user_id)
+117         ON UPDATE CASCADE
+118         ON DELETE SET NULL,
+119     CONSTRAINT fk_order_org
+120         FOREIGN KEY (organisation_id)
+121         REFERENCES organisations(organisation_id)
+122         ON UPDATE CASCADE
+123         ON DELETE CASCADE
+124 );
+125
+126
+127 CREATE TABLE orders_products (
+128     order_product_id SERIAL PRIMARY KEY,
+129     order_id INT NOT NULL,
+130     product_id INT NOT NULL,
+131     quanity NUMERIC(8,3) NOT NULL,
+132     organisation_id INT,
+133     CONSTRAINT fk_op_order
+134         FOREIGN KEY(order_id)
+135         REFERENCES orders(order_id)
+136         ON UPDATE CASCADE
+137         ON DELETE CASCADE,
+138     CONSTRAINT fk_op_product
+139         FOREIGN KEY(product_id)
+140         REFERENCES products(product_id)
+141         ON UPDATE CASCADE
+142         ON DELETE RESTRICT,
+143     CONSTRAINT fk_op_org
+144         FOREIGN KEY (organisation_id)
+145         REFERENCES organisations(organisation_id)
+146         ON UPDATE CASCADE
+147         ON DELETE CASCADE
+148 );
+149
+150
+151 CREATE TABLE device_types (
+152     device_type_id SERIAL PRIMARY KEY,
+153     title VARCHAR(100) NOT NULL,
+154     organisation_id INT,
+155     CONSTRAINT fk_device_type_org
+156         FOREIGN KEY (organisation_id)
+157         REFERENCES organisations(organisation_id)
+158         ON UPDATE CASCADE
+159         ON DELETE CASCADE
+160 );
+161
+162
+163 CREATE TABLE devices (
+164     device_id SERIAL PRIMARY KEY,
+165     title VARCHAR(100) NOT NULL,
+166     device_type_id INT NOT NULL,
+167     status DEVICE_STATUS_ENUM NOT NULL,
+168     last_connection TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+169     organisation_id INT,
+170     CONSTRAINT fk_device_type
+171         FOREIGN KEY(device_type_id)
+172         REFERENCES device_types(device_type_id)
+173         ON UPDATE CASCADE
+174         ON DELETE SET NULL,
+175     CONSTRAINT fk_device_org
+176         FOREIGN KEY (organisation_id)
+177         REFERENCES organisations(organisation_id)
+178         ON UPDATE CASCADE
+179         ON DELETE CASCADE
+180 );
+181
+182
+183 CREATE TABLE sensor_types (
+184     sensor_type_id SERIAL PRIMARY KEY,
+185     title VARCHAR(100) NOT NULL,
+186     organisation_id INT,
+187     CONSTRAINT fk_sensor_type_org
+188         FOREIGN KEY (organisation_id)
+189         REFERENCES organisations(organisation_id)
+190         ON UPDATE CASCADE
+191         ON DELETE CASCADE
+192 );
+193
+194
+195 CREATE TABLE sensors (
+196     sensor_id SERIAL PRIMARY KEY,
+197     device_id INT NOT NULL,
+198     title VARCHAR(100) NOT NULL,
+199     sensor_type_id INT,
+200     unit VARCHAR(50) NOT NULL,
+201     min_value INT NOT NULL,
+202     max_value INT NOT NULL,
+203     organisation_id INT,
+204     CONSTRAINT fk_sensor_device
+205         FOREIGN KEY(device_id)
+206         REFERENCES devices(device_id)
+207         ON UPDATE CASCADE
+208         ON DELETE CASCADE,
+209     CONSTRAINT fk_sensor_type
+210         FOREIGN KEY(sensor_type_id)
+211         REFERENCES sensor_types(sensor_type_id)
+212         ON UPDATE CASCADE
+213         ON DELETE SET NULL,
+214     CONSTRAINT fk_sensor_org
+215         FOREIGN KEY (organisation_id)
+216         REFERENCES organisations(organisation_id)
+217         ON UPDATE CASCADE
+218         ON DELETE CASCADE
+219 );
+220
+221
+222 CREATE TABLE command_types (
+223     command_type_id SERIAL PRIMARY KEY,
+224     title VARCHAR(100) NOT NULL,
+225     organisation_id INT,
+226     CONSTRAINT fk_ct_org
+227         FOREIGN KEY (organisation_id)
+228         REFERENCES organisations(organisation_id)
+229         ON UPDATE CASCADE
+230         ON DELETE CASCADE
+231 );
+232
+233
+234 CREATE TABLE commands (
+235     command_id SERIAL PRIMARY KEY,
+236     device_id INT NOT NULL,
+237     command_type_id INT NOT NULL,
+238     status STATUS_ENUM NOT NULL,
+239     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+240     executed_at TIMESTAMPTZ,
+241     product_id INT NOT NULL,
+242     organisation_id INT,
+243     CONSTRAINT fk_cmd_device
+244         FOREIGN KEY(device_id)
+245         REFERENCES devices(device_id)
+246         ON UPDATE CASCADE
+247         ON DELETE CASCADE,
+248     CONSTRAINT fk_cmd_type
+249         FOREIGN KEY(command_type_id)
+250         REFERENCES command_types(command_type_id)
+251         ON UPDATE CASCADE
+252         ON DELETE SET NULL,
+253     CONSTRAINT fk_cmd_product
+254         FOREIGN KEY(product_id)
+255         REFERENCES products(product_id)
+256         ON UPDATE CASCADE
+257         ON DELETE SET NULL,
+258     CONSTRAINT fk_cmd_org
+259         FOREIGN KEY (organisation_id)
+260         REFERENCES organisations(organisation_id)
+261         ON UPDATE CASCADE
+262         ON DELETE CASCADE
+263 );
+264
+265
+266 CREATE TABLE events (
+267     event_id SERIAL PRIMARY KEY,
+268     device_id INT NOT NULL,
+269     message TEXT,
+270     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+271     organisation_id INT,
+272     CONSTRAINT fk_event_device
+273         FOREIGN KEY(device_id)
+274         REFERENCES devices(device_id)
+275         ON UPDATE CASCADE
+276         ON DELETE CASCADE,
+277     CONSTRAINT fk_event_org
+278         FOREIGN KEY (organisation_id)
+279         REFERENCES organisations(organisation_id)
+280         ON UPDATE CASCADE
+281         ON DELETE CASCADE
+282 );
+283
+284
+285 CREATE TABLE device_logs (
+286     device_log_id SERIAL PRIMARY KEY,
+287     sensor_id INT NOT NULL,
+288     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+289     value INT,
+290     organisation_id INT,
+291     CONSTRAINT fk_log_sensor
+292         FOREIGN KEY(sensor_id)
+293         REFERENCES sensors(sensor_id)
+294         ON UPDATE CASCADE
+295         ON DELETE CASCADE,
+296     CONSTRAINT fk_log_org
+297         FOREIGN KEY (organisation_id)
+298         REFERENCES organisations(organisation_id)
+299         ON UPDATE CASCADE
+300         ON DELETE CASCADE
+301 );
