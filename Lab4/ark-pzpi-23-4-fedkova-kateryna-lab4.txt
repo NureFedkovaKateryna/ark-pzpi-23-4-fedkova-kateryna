@@ -1,0 +1,765 @@
+Харківський національний університет радіоелектроніки
+Факультет комп’ютерних наук
+Катедра програмної інженерії
+
+
+
+
+
+
+
+
+
+
+
+
+ЗВІТ
+з лабораторної роботи №4
+з дисципліни «Аналіз та рефакторинг коду»
+на тему: «Створення IоT клієнта»
+
+
+
+
+
+
+
+
+Виконала
+ст. гр. ПЗПІ-23-4
+Федькова Катерина
+Перевірив
+ст. викладач катедри ПІ
+Сокорчук Ігор Петрович
+
+
+
+
+Харків 2025
+1 ІСТОРІЯ ЗМІН
+
+
+№
+	Дата
+	Версія звіту
+	Опис змін та виправлень
+	1
+	23.12.2025
+	0.1
+	Зроблено звіт
+	________________
+
+
+2 ЗАВДАННЯ
+Метою даної роботи є отримання практичних навичок з розробки IoT клієнта, включаючи проектування його архітектури, бізнес логіки, налаштувань, та інтеграцію із серверною частиною. Навчитися використовувати UML для створення діаграм прецедентів та діяльності, а також перевіряти функціональність IoT клієнта через тестування та інтеграцію.
+3 ОПИС ВИКОНАНОЇ РОБОТИ
+IoT-клієнт - це програмне забезпечення, яке працює на фізичному пристрої та забезпечує: зчитування даних з сенсорів, виконання команд, отриманих із серверної частини, передачу телеметрії та подій на сервер, підтримку стабільного мережевого з’єднання, моніторинг власного стану. IoT-клієнт взаємодіє із сервером, який зберігає дані у БД (таблиці devices, sensors, commands, device_logs, events). Загальна схема взаємодії зображена на рисунку 1.1.
+  
+
+Рисунок 1.1 - Схема взаємодії Іот девайсів з серверною частиною
+
+
+Sensor Abstraction Layer призначений для уніфікації роботи з різними сенсорами. Функції включають: ініціалізація сенсорів, зчитування значень, перевірка діапазонів (min_value, max_value з таблиці sensors). В базі даних використовуються таблиці sensors, sensor_types. 
+Data Collection Module призначений для періодичного збору показників з сенсорів. Функція включають: таймери зчитування, агрегація даних, формування структур телеметрії. В базі даних використовується таблиця device_logs.
+Data Processing Module призначений для обробки даних перед відправкою. Функція включають: виявлення аварійних ситуацій, перевірка на перевищення порогів, генерація подій. В базі даних використовуються таблиці device_logs, events. 
+Network Communication Module призначений для взаємодії з серверною частиною. Підтримувані протоколи: HTTP/REST. Функція включають: автентифікація пристрою, підтримка з’єднання, повторна відправка при збої. В базі даних використовуються таблиці devices.status, devices.last_connection. 
+Device Management Module призначений для контролю пристрою. Функція включають: зміна статусу, логування системних подій. В базі даних використовуються таблиці devices, events.
+Створимо UML діаграму прецедентів для IoT клієнта, яка описує основні сценарії взаємодії користувача та системи з IoT клієнтом (див. рис. 1.2).
+
+
+              
+Рисунок 1.2 - UML діаграма прецедентів
+Створимо UML діаграму діяльності для IoT клієнта, яка відображає основні дії IoT клієнта, такі як процес підключення до мережі, зчитування та валідацію даних сенсорів, обробку та передачу телеметрії на сервер, а також виконання команд і оновлення стану пристрою (див. рис. 1.3).
+                                    
+Рисунок 1.3 - UML діаграма діяльності
+Оголошуємо статичні конфігураційні параметри: Wi-Fi, URL сервера, ID організації, типи сенсорів, піни та діапазони значень. Відноситься до модулю Device Management Module та Network Configuration.
+
+  1 #include <WiFi.h>
+  2 #include <HTTPClient.h>
+  3 #include <Preferences.h>
+  4 #include <ArduinoJson.h>
+  5
+  6 #define WIFI_SSID "Wokwi-GUEST"
+  7 #define WIFI_PASS ""
+  8
+  9 #define SERVER_URL "https://ark-pzpi-23-4-fedkova-kateryna-lab4.onrender.com/api"
+ 10
+ 11 #define DEVICE_TITLE "ESP32-coffee-01"
+ 12 #define ORG_ID 1
+ 13 #define SENSOR_TYPE_LEVEL 1
+ 14
+ 15 #define PIN_TEMP  34
+ 16 #define PIN_WATER 35
+ 17 #define PIN_MILK  32
+ 18 #define PIN_BEANS 33
+ 19
+ 20 #define MIN_VALUE 0.0
+ 21 #define MAX_VALUE 100.0
+
+
+Оголошуємо та ініціалізуємо збереження стану пристрою, включно з deviceId та параметрами сенсорів. Відноситься до Device Management Module.
+ 23 Preferences prefs;
+ 24 int deviceId = -1;
+
+
+Оголошуємо структуру і масив для зберігання конфігурацій сенсорів: назва, пін, мін/макс значення та критичні пороги. Відноситься до модулю Sensor Abstraction Layer.
+
+ 26 struct SensorConfig {
+ 27   const char* name;
+ 28   int pin;
+ 29   const char* sensorIdPref;
+ 30   float minValue;
+ 31   float maxValue;
+ 32   float criticalLow;
+ 33 };
+ 34
+ 35 SensorConfig sensors[] = {
+ 36   { "Water", PIN_WATER, "sensor_water", 0, 100, 5 },
+ 37   { "Milk",  PIN_MILK,  "sensor_milk", 0, 100, 5 },
+ 38   { "Beans", PIN_BEANS, "sensor_beans", 0, 100, 5 },
+ 39   { "Temp",  PIN_TEMP,  "sensor_temp", 0, 100, -1 }
+ 40 };
+ 41
+ 42 const int SENSOR_COUNT = sizeof(sensors) / sizeof(SensorConfig);
+
+
+Підключаємо ESP32 до Wi-Fi та очікуємо стабільне з’єднання. Відноситься до модулю Network Communication Module.
+
+
+ 44 void connectWiFi() {
+ 45   WiFi.begin(WIFI_SSID, WIFI_PASS);
+ 46   Serial.print("Connecting to WiFi");
+ 47
+ 48   while (WiFi.status() != WL_CONNECTED) {
+ 49     delay(500);
+ 50     Serial.print(".");
+ 51   }
+ 52
+ 53   Serial.println("\nWiFi connected");
+ 54 }
+
+
+Реєструємо пристрій на сервері і зберігаємо deviceId у Preferences. Відноситься до модулю Device Management Module та Network Communication Module.
+ 56 void registerDevice() {
+ 57   if (deviceId != -1) {
+ 58     Serial.println("Device already registered");
+ 59     return;
+ 60   }
+ 61
+ 62   HTTPClient http;
+ 63   http.begin(String(SERVER_URL) + "/devices/");
+ 64   http.addHeader("Content-Type", "application/json");
+ 65
+ 66   String body = "{";
+ 67   body += "\"title\":\"" DEVICE_TITLE "\",";
+ 68   body += "\"organisation\":" + String(ORG_ID);
+ 69   body += "}";
+ 70
+ 71   int code = http.POST(body);
+ 72
+ 73   Serial.print("HTTP response code: ");
+ 74   Serial.println(code);
+ 75
+ 76   String response = http.getString();
+ 77   Serial.print("Server response: ");
+ 78   Serial.println(response);
+ 79
+ 80   if (code == 201) {
+ 81     DynamicJsonDocument doc(512);
+ 82     deserializeJson(doc, response);
+ 83
+ 84     deviceId = doc["device_id"];
+ 85     prefs.putInt("device_id", deviceId);
+ 86
+ 87     Serial.print("Registered with device_id = ");
+ 88     Serial.println(deviceId);
+ 89   }
+ 90
+ 91   http.end();
+ 92 }
+
+
+Відправляємо інформацію про сенсор на сервер і зберігаємо ID сенсора. Відноситься до модулю Sensor Abstraction Layer та Network Communication Module.
+ 94 int registerSensor(const char* title, int sensorType) {
+ 95   HTTPClient http;
+ 96   http.begin(String(SERVER_URL) + "/sensors/");
+ 97   http.addHeader("Content-Type", "application/json");
+ 98
+ 99   String payload = "{";
+100   payload += "\"title\":\"" + String(title) + "\",";
+101   payload += "\"unit\":\"%\",";
+102   payload += "\"min_value\":" + String(MIN_VALUE) + ",";
+103   payload += "\"max_value\":" + String(MAX_VALUE) + ",";
+104   payload += "\"device\":" + String(deviceId) + ",";
+105   payload += "\"sensor_type\":" + String(sensorType) + ",";
+106   payload += "\"organisation\":" + String(ORG_ID);
+107   payload += "}";
+108
+109   int code = http.POST(payload);
+110   int sensorId = -1;
+111
+112   Serial.print("HTTP code: ");
+113   Serial.println(code);
+114
+115   String resp = http.getString();
+116   Serial.print("Server response: ");
+117   Serial.println(resp);
+118
+119   if (code == 201) {
+120     StaticJsonDocument<128> doc;
+121     deserializeJson(doc, resp);
+122     sensorId = doc["sensor_id"];
+123     http.end();
+124     return sensorId;
+125   }
+126
+127   http.end();
+128   return sensorId;
+129 }
+
+
+Послідовно реєструємо всі сенсори і зберігаємо їх ID. Відноситься до модулю Abstraction Layer , Device Management Module та Network Communication Module
+
+131 void registerAllSensors() {
+132   int successCount = 0;
+133
+134   int waterId = registerSensor("Water level", SENSOR_TYPE_LEVEL);
+135   if (waterId > 0) {
+136     prefs.putInt("sensor_water", waterId);
+137     successCount++;
+138   }
+139
+140   int milkId  = registerSensor("Milk level", SENSOR_TYPE_LEVEL);
+141   if (milkId > 0) {
+142     prefs.putInt("sensor_milk", milkId);
+143     successCount++;
+144   }
+145
+146   int beansId = registerSensor("Beans level", SENSOR_TYPE_LEVEL);
+147   if (beansId > 0) {
+148     prefs.putInt("sensor_beans", beansId);
+149     successCount++;
+150   }
+151
+152   int tempId  = registerSensor("Temperature", SENSOR_TYPE_LEVEL);
+153   if (tempId > 0) {
+154     prefs.putInt("sensor_temp", tempId);
+155     successCount++;
+156   }
+157
+158   prefs.putInt("sensor_count", successCount);
+159   if (successCount == 4) {
+160     prefs.putBool("sensors_registered", true);
+161   } else {
+162     prefs.putBool("sensors_registered", false);
+163   }
+164 }
+
+
+Відправляємо статус пристрою на сервер для оновлення останнього підключення. Відноситься до Network Communication Module.
+166 void sendStatus() {
+167   if (deviceId == -1) return;
+168
+169   HTTPClient http;
+170   http.begin(String(SERVER_URL) + "/devices/");
+171   http.addHeader("Content-Type", "application/json");
+172
+173   String body = "{";
+174   body += "\"device_id\":" + String(deviceId);
+175   body += "}";
+176
+177   http.POST(body);
+178   http.end();
+179
+180   Serial.println("Status sent: online");
+181 }
+
+
+Відправляємо значення сенсора у таблицю device_logs на сервері. Відноситься ло модулю Network Communication Module та Data Collection Module.
+183 bool sendDeviceLog(int sensorId, float value) {
+184   HTTPClient http;
+185   http.begin(String(SERVER_URL) + "/device-logs/");
+186   http.addHeader("Content-Type", "application/json");
+187
+188   String payload = "{";
+189   payload += "\"value\":" + String(round(value)) + ",";
+190   payload += "\"sensor\":" + String(sensorId) + ",";
+191   payload += "\"organisation\":" + String(ORG_ID);
+192   payload += "}";
+193
+194   int code = http.POST(payload);
+195   String response = http.getString();
+196   Serial.println(code);
+197   Serial.print("Response: ");
+198   Serial.println(response);
+199
+200   if (code == 200 || code == 201) {
+201     http.end();
+202     return true;
+203   }
+204
+205   Serial.print("Log send failed, code: ");
+206   Serial.println(code);
+207   http.end();
+208   return false;
+209 }
+
+
+Зчитуємо аналоговий сигнал з сенсора і масштабуємо до максимального значення. Відноситься до Sensor Abstraction Layer.
+
+
+211 float readSensorValue(int pin, float maxValue) {
+212   int raw = analogRead(pin);
+213   if (raw < 0 || raw > 4095) return NAN;
+214   return raw * maxValue / 4095.0;
+215 }
+
+Перевіряємо валідність значення сенсора. Відноситься до Sensor Abstraction Layer.
+
+248 bool validValue(float v, float minV, float maxV) {
+249   return !isnan(v) && v >= minV && v <= maxV;
+250 }
+
+
+Перевіряємо критичні пороги та генеруємо події при невідповідних значеннях. Відноситься до Data Processing Module.
+
+
+217 void checkAndSendEvent(int idx, float value) {
+218   SensorConfig& s = sensors[idx];
+219
+220   if (s.criticalLow >= 0 && value < s.criticalLow) {
+221     sendEvent(String("WARNING! ") + s.name + " level is too low");
+222   }
+223
+224   if (value > s.maxValue) {
+225     sendEvent(String("WARNING! ") + s.name + " level is too high");
+226   }
+227 }
+
+
+Оголошуємо функцію для періодичного опитування сенсорів, перевірки діапазонів, відправки логів та обробки подій. Відноситься до Data Collection Module та Data Processing Module.
+229 void processSensors() {
+230   for (int i = 0; i < SENSOR_COUNT; i++) {
+231     SensorConfig& s = sensors[i];
+232
+233     float value = readSensorValue(s.pin, s.maxValue);
+234     if (!validValue(value, s.minValue, s.maxValue)) {
+235       sendEvent(String("Invalid value from ") + s.name + " sensor");
+236       continue;
+237     }
+238
+239     sendDeviceLog(prefs.getInt(s.sensorIdPref), value);
+240     checkAndSendEvent(i, value);
+241
+242     Serial.print(s.name);
+243     Serial.print(": ");
+244     Serial.println(value);
+245   }
+246 }
+
+
+Відправляємо події на сервер для запису у таблицю events. Відноситься до Network Communication Module та Data Processing Module.
+252 bool sendEvent(const String& message) {
+253   HTTPClient http;
+254   http.begin(String(SERVER_URL) + "/events/");
+255   http.addHeader("Content-Type", "application/json");
+256
+257   String payload = "{";
+258   payload += "\"message\":\"" + message + "\",";
+259   payload += "\"device\":" + String(deviceId) + ",";
+260   payload += "\"organisation\":" + String(ORG_ID);
+261   payload += "}";
+262
+263   int code = http.POST(payload);
+264   String response = http.getString();
+265   Serial.println(code);
+266   Serial.print("Response: ");
+267   Serial.println(response);
+268
+269   if (code == 200 || code == 201) {
+270     http.end();
+271     return true;
+272   }
+273
+274   http.end();
+275   return false;
+276 }
+
+
+Ініціалізуємо ESP32: серійний порт, підключення Wi-Fi, реєстрація пристрою та сенсорів. Основний цикл пристрою: відправка статусу, обробка сенсорів, періодичність 10 секунд.
+
+278 void setup() {
+279   Serial.begin(115200);
+280
+281   prefs.begin("iot", false);
+282   deviceId = prefs.getInt("device_id", -1);
+283
+284   connectWiFi();
+285   registerDevice();
+286
+287   deviceId = prefs.getInt("device_id", -1);
+288
+289   if (!prefs.getBool("sensors_registered", false) || prefs.getInt("sensor_count", 0) != 4) {
+290     registerAllSensors();
+291   }
+292 }
+293
+294 void loop() {
+295   sendStatus();
+296   processSensors();
+297   delay(10000);
+298 }
+
+
+4 ВИСНОВКИ
+У результаті виконання лабораторної роботи отримали практичні навички з розробки IoT клієнта, включаючи проектування його архітектури, бізнес логіки, налаштувань, та інтеграцію із серверною частиною. Навчилися використовувати UML для створення діаграм прецедентів та діяльності, а також перевіряти функціональність IoT клієнта через тестування та інтеграцію. ознайомились з процесом, а також розробили.
+5 ВИКОРИСТАНІ ДЖЕРЕЛА
+1. Cloud Application Platform | Render. Render. URL: https://render.com/ (дата звернення: 23.12.2025).
+2. Home - Django REST framework. Home - Django REST framework. URL: https://www.django-rest-framework.org/ (дата звернення: 23.12.2025).
+3. Wokwi - World's most advanced ESP32 Simulator. Wokwi - World's most advanced ESP32 Simulator. URL: https://wokwi.com/ (дата звернення: 23.12.2025).
+
+
+ДОДАТОК А
+Відеозапис
+Відеозапис презентації результатів лабораторної роботи: https://www.youtube.com/watch?v=8O8k0C4PTTk
+Хронологічний опис відеозапису:
+00:00 – Вступ
+01:45 – Демонстрація роботи
+07:10 – Демонстрація бази даних
+ДОДАТОК В
+Програмний код
+В.1 Код для Іот-пристрою
+   1 #include <WiFi.h>
+  2 #include <HTTPClient.h>
+  3 #include <Preferences.h>
+  4 #include <ArduinoJson.h>
+  5
+  6 #define WIFI_SSID "Wokwi-GUEST"
+  7 #define WIFI_PASS ""
+  8
+  9 #define SERVER_URL "https://ark-pzpi-23-4-fedkova-kateryna-lab4.onrender.com/api"
+ 10
+ 11 #define DEVICE_TITLE "ESP32-coffee-01"
+ 12 #define ORG_ID 1
+ 13 #define SENSOR_TYPE_LEVEL 1
+ 14
+ 15 #define PIN_TEMP  34
+ 16 #define PIN_WATER 35
+ 17 #define PIN_MILK  32
+ 18 #define PIN_BEANS 33
+ 19
+ 20 #define MIN_VALUE 0.0
+ 21 #define MAX_VALUE 100.0
+ 22
+ 23 Preferences prefs;
+ 24 int deviceId = -1;
+ 25
+ 26 struct SensorConfig {
+ 27   const char* name;
+ 28   int pin;
+ 29   const char* sensorIdPref;
+ 30   float minValue;
+ 31   float maxValue;
+ 32   float criticalLow;
+ 33 };
+ 34
+ 35 SensorConfig sensors[] = {
+ 36   { "Water", PIN_WATER, "sensor_water", 0, 100, 5 },
+ 37   { "Milk",  PIN_MILK,  "sensor_milk", 0, 100, 5 },
+ 38   { "Beans", PIN_BEANS, "sensor_beans", 0, 100, 5 },
+ 39   { "Temp",  PIN_TEMP,  "sensor_temp", 0, 100, -1 }
+ 40 };
+ 41
+ 42 const int SENSOR_COUNT = sizeof(sensors) / sizeof(SensorConfig);
+ 43
+ 44 void connectWiFi() {
+ 45   WiFi.begin(WIFI_SSID, WIFI_PASS);
+ 46   Serial.print("Connecting to WiFi");
+ 47
+ 48   while (WiFi.status() != WL_CONNECTED) {
+ 49     delay(500);
+ 50     Serial.print(".");
+ 51   }
+ 52
+ 53   Serial.println("\nWiFi connected");
+ 54 }
+ 55
+ 56 void registerDevice() {
+ 57   if (deviceId != -1) {
+ 58     Serial.println("Device already registered");
+ 59     return;
+ 60   }
+ 61
+ 62   HTTPClient http;
+ 63   http.begin(String(SERVER_URL) + "/devices/");
+ 64   http.addHeader("Content-Type", "application/json");
+ 65
+ 66   String body = "{";
+ 67   body += "\"title\":\"" DEVICE_TITLE "\",";
+ 68   body += "\"organisation\":" + String(ORG_ID);
+ 69   body += "}";
+ 70
+ 71   int code = http.POST(body);
+ 72
+ 73   Serial.print("HTTP response code: ");
+ 74   Serial.println(code);
+ 75
+ 76   String response = http.getString();
+ 77   Serial.print("Server response: ");
+ 78   Serial.println(response);
+ 79
+ 80   if (code == 201) {
+ 81     DynamicJsonDocument doc(512);
+ 82     deserializeJson(doc, response);
+ 83
+ 84     deviceId = doc["device_id"];
+ 85     prefs.putInt("device_id", deviceId);
+ 86
+ 87     Serial.print("Registered with device_id = ");
+ 88     Serial.println(deviceId);
+ 89   }
+ 90
+ 91   http.end();
+ 92 }
+ 93
+ 94 int registerSensor(const char* title, int sensorType) {
+ 95   HTTPClient http;
+ 96   http.begin(String(SERVER_URL) + "/sensors/");
+ 97   http.addHeader("Content-Type", "application/json");
+ 98
+ 99   String payload = "{";
+100   payload += "\"title\":\"" + String(title) + "\",";
+101   payload += "\"unit\":\"%\",";
+102   payload += "\"min_value\":" + String(MIN_VALUE) + ",";
+103   payload += "\"max_value\":" + String(MAX_VALUE) + ",";
+104   payload += "\"device\":" + String(deviceId) + ",";
+105   payload += "\"sensor_type\":" + String(sensorType) + ",";
+106   payload += "\"organisation\":" + String(ORG_ID);
+107   payload += "}";
+108
+109   int code = http.POST(payload);
+110   int sensorId = -1;
+111
+112   Serial.print("HTTP code: ");
+113   Serial.println(code);
+114
+115   String resp = http.getString();
+116   Serial.print("Server response: ");
+117   Serial.println(resp);
+118
+119   if (code == 201) {
+120     StaticJsonDocument<128> doc;
+121     deserializeJson(doc, resp);
+122     sensorId = doc["sensor_id"];
+123     http.end();
+124     return sensorId;
+125   }
+126
+127   http.end();
+128   return sensorId;
+129 }
+130
+131 void registerAllSensors() {
+132   int successCount = 0;
+133
+134   int waterId = registerSensor("Water level", SENSOR_TYPE_LEVEL);
+135   if (waterId > 0) {
+136     prefs.putInt("sensor_water", waterId);
+137     successCount++;
+138   }
+139
+140   int milkId  = registerSensor("Milk level", SENSOR_TYPE_LEVEL);
+141   if (milkId > 0) {
+142     prefs.putInt("sensor_milk", milkId);
+143     successCount++;
+144   }
+145
+146   int beansId = registerSensor("Beans level", SENSOR_TYPE_LEVEL);
+147   if (beansId > 0) {
+148     prefs.putInt("sensor_beans", beansId);
+149     successCount++;
+150   }
+151
+152   int tempId  = registerSensor("Temperature", SENSOR_TYPE_LEVEL);
+153   if (tempId > 0) {
+154     prefs.putInt("sensor_temp", tempId);
+155     successCount++;
+156   }
+157
+158   prefs.putInt("sensor_count", successCount);
+159   if (successCount == 4) {
+160     prefs.putBool("sensors_registered", true);
+161   } else {
+162     prefs.putBool("sensors_registered", false);
+163   }
+164 }
+165
+166 void sendStatus() {
+167   if (deviceId == -1) return;
+168
+169   HTTPClient http;
+170   http.begin(String(SERVER_URL) + "/devices/");
+171   http.addHeader("Content-Type", "application/json");
+172
+173   String body = "{";
+174   body += "\"device_id\":" + String(deviceId);
+175   body += "}";
+176
+177   http.POST(body);
+178   http.end();
+179
+180   Serial.println("Status sent: online");
+181 }
+182
+183 bool sendDeviceLog(int sensorId, float value) {
+184   HTTPClient http;
+185   http.begin(String(SERVER_URL) + "/device-logs/");
+186   http.addHeader("Content-Type", "application/json");
+187
+188   String payload = "{";
+189   payload += "\"value\":" + String(round(value)) + ",";
+190   payload += "\"sensor\":" + String(sensorId) + ",";
+191   payload += "\"organisation\":" + String(ORG_ID);
+192   payload += "}";
+193
+194   int code = http.POST(payload);
+195   String response = http.getString();
+196   Serial.println(code);
+197   Serial.print("Response: ");
+198   Serial.println(response);
+199
+200   if (code == 200 || code == 201) {
+201     http.end();
+202     return true;
+203   }
+204
+205   Serial.print("Log send failed, code: ");
+206   Serial.println(code);
+207   http.end();
+208   return false;
+209 }
+210
+211 float readSensorValue(int pin, float maxValue) {
+212   int raw = analogRead(pin);
+213   if (raw < 0 || raw > 4095) return NAN;
+214   return raw * maxValue / 4095.0;
+215 }
+216
+217 void checkAndSendEvent(int idx, float value) {
+218   SensorConfig& s = sensors[idx];
+219
+220   if (s.criticalLow >= 0 && value < s.criticalLow) {
+221     sendEvent(String("WARNING! ") + s.name + " level is too low");
+222   }
+223
+224   if (value > s.maxValue) {
+225     sendEvent(String("WARNING! ") + s.name + " level is too high");
+226   }
+227 }
+228
+229 void processSensors() {
+230   for (int i = 0; i < SENSOR_COUNT; i++) {
+231     SensorConfig& s = sensors[i];
+232
+233     float value = readSensorValue(s.pin, s.maxValue);
+234     if (!validValue(value, s.minValue, s.maxValue)) {
+235       sendEvent(String("Invalid value from ") + s.name + " sensor");
+236       continue;
+237     }
+238
+239     sendDeviceLog(prefs.getInt(s.sensorIdPref), value);
+240     checkAndSendEvent(i, value);
+241
+242     Serial.print(s.name);
+243     Serial.print(": ");
+244     Serial.println(value);
+245   }
+246 }
+247
+248 bool validValue(float v, float minV, float maxV) {
+249   return !isnan(v) && v >= minV && v <= maxV;
+250 }
+251
+252 bool sendEvent(const String& message) {
+253   HTTPClient http;
+254   http.begin(String(SERVER_URL) + "/events/");
+255   http.addHeader("Content-Type", "application/json");
+256
+257   String payload = "{";
+258   payload += "\"message\":\"" + message + "\",";
+259   payload += "\"device\":" + String(deviceId) + ",";
+260   payload += "\"organisation\":" + String(ORG_ID);
+261   payload += "}";
+262
+263   int code = http.POST(payload);
+264   String response = http.getString();
+265   Serial.println(code);
+266   Serial.print("Response: ");
+267   Serial.println(response);
+268
+269   if (code == 200 || code == 201) {
+270     http.end();
+271     return true;
+272   }
+273
+274   http.end();
+275   return false;
+276 }
+277
+278 void setup() {
+279   Serial.begin(115200);
+280
+281   prefs.begin("iot", false);
+282   deviceId = prefs.getInt("device_id", -1);
+283
+284   connectWiFi();
+285   registerDevice();
+286
+287   deviceId = prefs.getInt("device_id", -1);
+288
+289   if (!prefs.getBool("sensors_registered", false) || prefs.getInt("sensor_count", 0) != 4) {
+290     registerAllSensors();
+291   }
+292 }
+293
+294 void loop() {
+295   sendStatus();
+296   processSensors();
+297   delay(10000);
+298 }
+В.2 Конфігурація Іот-пристрою
+  1 {
+  2   "version": 1,
+  3   "author": "Kate Fedkova",
+  4   "editor": "wokwi",
+  5   "parts": [
+  6     { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 67.2, "left": 100.84, "attrs": {} },
+  7     { "type": "wokwi-potentiometer", "id": "water", "top": -10.9, "left": -38.6, "attrs": {} },
+  8     {
+  9       "type": "wokwi-potentiometer",
+ 10       "id": "temperature",
+ 11       "top": -10.9,
+ 12       "left": -144.2,
+ 13       "attrs": {}
+ 14     },
+ 15     { "type": "wokwi-potentiometer", "id": "milk", "top": -49.3, "left": 316.6, "attrs": {} },
+ 16     { "type": "wokwi-potentiometer", "id": "beans", "top": -10.9, "left": 412.6, "attrs": {} }
+ 17   ],
+ 18   "connections": [
+ 19     [ "esp:TX", "$serialMonitor:RX", "", [] ],
+ 20     [ "esp:RX", "$serialMonitor:TX", "", [] ],
+ 21     [ "temperature:GND", "esp:GND.1", "black", [ "v0" ] ],
+ 22     [ "water:GND", "esp:GND.1", "black", [ "v0" ] ],
+ 23     [ "milk:GND", "esp:GND.2", "black", [ "v0" ] ],
+ 24     [ "beans:GND", "esp:GND.2", "black", [ "v0" ] ],
+ 25     [ "water:VCC", "esp:3V3", "red", [ "v0" ] ],
+ 26     [ "temperature:VCC", "esp:3V3", "red", [ "v0" ] ],
+ 27     [ "milk:VCC", "esp:3V3", "red", [ "v0" ] ],
+ 28     [ "beans:VCC", "esp:3V3", "red", [ "v0" ] ],
+ 29     [ "temperature:SIG", "esp:34", "green", [ "v0" ] ],
+ 30     [ "water:SIG", "esp:35", "green", [ "v0" ] ],
+ 31     [ "milk:SIG", "esp:32", "green", [ "v0" ] ],
+ 32     [ "beans:SIG", "esp:33", "green", [ "v0" ] ]
+ 33   ],
+ 34   "dependencies": {}
+ 35 }
