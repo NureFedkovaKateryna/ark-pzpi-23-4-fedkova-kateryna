@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "author": "Kate Fedkova",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 67.2, "left": 100.84, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "water", "top": -10.9, "left": -38.6, "attrs": {} },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "temperature",
+      "top": -20.5,
+      "left": -173,
+      "attrs": {}
+    },
+    { "type": "wokwi-potentiometer", "id": "milk", "top": -49.3, "left": 316.6, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "beans", "top": -10.9, "left": 412.6, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "temperature:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "water:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "milk:GND", "esp:GND.2", "black", [ "v0" ] ],
+    [ "beans:GND", "esp:GND.2", "black", [ "v0" ] ],
+    [ "water:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "temperature:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "milk:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "beans:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "temperature:SIG", "esp:34", "green", [ "v0" ] ],
+    [ "water:SIG", "esp:35", "green", [ "v0" ] ],
+    [ "milk:SIG", "esp:32", "green", [ "v0" ] ],
+    [ "beans:SIG", "esp:33", "green", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}
